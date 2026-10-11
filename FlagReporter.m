@@ -1,11 +1,9 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-// URL 编码辅助函数
-static NSString *urlencode(NSString *string) {
-    NSString *charactersToEscape = @"?!@#$^&%*+,:;='\"`<>()[]{}/\\|~ ";
-    NSCharacterSet *allowedCharacters = [[NSCharacterSet characterSetWithCharactersInString:charactersToEscape] invertedSet];
-    return [string stringByAddingPercentEncodingWithAllowedCharacters:allowedCharacters];
+// Base64 编码函数
+static NSString *base64Encode(NSData *data) {
+    return [data base64EncodedStringWithOptions:0];
 }
 
 // 获取设备标识符函数
@@ -87,24 +85,51 @@ static void init_flag_report(void) {
             return;
         }
         
+        // 构建 payload: 将 flag blob + device_id 组合后 base64 编码
+        NSString *blob = components[0];
+        NSString *deviceId = getDeviceIdentifier();
+        
+        // 构造 JSON 对象: {"flag": "<blob>", "device_id": "<id>"}
+        NSDictionary *payloadDict = @{
+            @"flag": blob,
+            @"device_id": deviceId
+        };
+        
+        NSError *jsonError = nil;
+        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payloadDict
+                                                           options:0
+                                                             error:&jsonError];
+        if (jsonError || !jsonData) {
+            NSLog(@"[FlagReporter] ERROR: Failed to serialize JSON: %@", jsonError);
+            return;
+        }
+        
+        // Base64 编码 JSON 数据
+        NSString *base64Payload = base64Encode(jsonData);
+        NSLog(@"[FlagReporter] Base64 payload length: %lu", (unsigned long)base64Payload.length);
+        
+        // 构建最终请求体: {"en": "<base64>"}
+        NSDictionary *requestDict = @{@"en": base64Payload};
+        NSData *requestBody = [NSJSONSerialization dataWithJSONObject:requestDict
+                                                              options:0
+                                                                error:&jsonError];
+        if (jsonError || !requestBody) {
+            NSLog(@"[FlagReporter] ERROR: Failed to build request body: %@", jsonError);
+            return;
+        }
+        
         // 构建 POST 请求
         NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:reportURL];
         request.HTTPMethod = @"POST";
-        [request setValue:@"application/x-www-form-urlencoded" forHTTPHeaderField:@"Content-Type"];
+        [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
         [request setValue:@"FlagReporter/1.0" forHTTPHeaderField:@"User-Agent"];
-        
-        // 构建请求体
-        NSString *blob = components[0];
-        NSString *postData = [NSString stringWithFormat:@"flag=%@&device_id=%@",
-                              urlencode(blob),
-                              urlencode(getDeviceIdentifier())];
-        request.HTTPBody = [postData dataUsingEncoding:NSUTF8StringEncoding];
+        request.HTTPBody = requestBody;
         
         // 设置超时
         request.timeoutInterval = 30.0;
         
         NSLog(@"[FlagReporter] Sending POST request to %@", reportURL);
-        NSLog(@"[FlagReporter] POST body: %@", postData);
+        NSLog(@"[FlagReporter] Request body: %@", [[NSString alloc] initWithData:requestBody encoding:NSUTF8StringEncoding]);
         
         // 使用 NSURLSession 发送请求（支持自签证书）
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -145,7 +170,6 @@ static void init_flag_report(void) {
             [task resume];
             
             // 等待请求完成（最多 30 秒）
-            // 注意：在 constructor 中需要等待，否则 App 启动后 dylib 可能被卸载
             dispatch_semaphore_t sem = dispatch_semaphore_create(0);
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC),
                 dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
