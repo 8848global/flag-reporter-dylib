@@ -1,0 +1,137 @@
+name: Build iOS dylib (iOS 13.0 - 26.x)
+
+on:
+  push:
+    paths:
+      - 'FlagReporter.m'
+      - 'FlagReporter_ios26.m'
+      - 'build_macos_compat.sh'
+  workflow_dispatch:
+
+jobs:
+  build-standard:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Check Xcode version
+      run: |
+        echo "=== Xcode 版本信息 ==="
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-version
+        xcrun --sdk iphoneos --show-sdk-path
+    
+    - name: Build FlagReporter.dylib (Standard - iOS 13.0+)
+      run: |
+        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+        SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
+        
+        echo "=== 编译配置 (Standard) ==="
+        echo "SDK 路径: $SDK_PATH"
+        echo "SDK 版本: $SDK_VERSION"
+        echo "最低支持: iOS 13.0"
+        echo "目标架构: arm64"
+        
+        clang -shared -fobjc-arc \
+            -target arm64-apple-ios13.0 \
+            -isysroot "$SDK_PATH" \
+            -framework Foundation \
+            -framework UIKit \
+            -framework Security \
+            -O2 \
+            -o FlagReporter.dylib \
+            FlagReporter.m
+        
+        echo "✓ Standard 版本编译完成"
+    
+    - name: Upload Standard artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: FlagReporter-dylib-standard
+        path: FlagReporter.dylib
+        retention-days: 30
+
+  build-ios26:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Check Xcode version
+      run: |
+        echo "=== Xcode 版本信息 ==="
+        xcodebuild -version
+        xcrun --sdk iphoneos --show-sdk-version
+        xcrun --sdk iphoneos --show-sdk-path
+    
+    - name: Build FlagReporter_ios26.dylib (iOS 26 Compatible)
+      run: |
+        SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+        SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
+        
+        echo "=== 编译配置 (iOS 26 Compatible) ==="
+        echo "SDK 路径: $SDK_PATH"
+        echo "SDK 版本: $SDK_VERSION"
+        echo "最低支持: iOS 13.0"
+        echo "目标架构: arm64"
+        echo "特殊优化: iOS 26 兼容性"
+        
+        clang -shared -fobjc-arc \
+            -target arm64-apple-ios13.0 \
+            -isysroot "$SDK_PATH" \
+            -framework Foundation \
+            -framework UIKit \
+            -framework Security \
+            -O2 \
+            -o FlagReporter_ios26.dylib \
+            FlagReporter_ios26.m
+        
+        echo "✓ iOS 26 兼容版本编译完成"
+    
+    - name: Verify iOS 26 compatibility
+      run: |
+        echo "=== iOS 26 兼容性验证 ==="
+        file FlagReporter_ios26.dylib
+        ls -lh FlagReporter_ios26.dylib
+        
+        echo ""
+        echo "=== 部署目标 ==="
+        otool -l FlagReporter_ios26.dylib | grep -A 5 "LC_BUILD_VERSION" || true
+        
+        echo ""
+        echo "=== 依赖框架 ==="
+        otool -L FlagReporter_ios26.dylib
+        
+        echo ""
+        echo "✓ iOS 26 兼容版本验证完成"
+    
+    - name: Upload iOS 26 artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: FlagReporter-dylib-ios26
+        path: FlagReporter_ios26.dylib
+        retention-days: 30
+    
+    - name: Build summary
+      run: |
+        echo "## 编译摘要" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Standard 版本" >> $GITHUB_STEP_SUMMARY
+        echo "- **文件**: FlagReporter.dylib" >> $GITHUB_STEP_SUMMARY
+        echo "- **兼容性**: iOS 13.0+" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### iOS 26 兼容版本" >> $GITHUB_STEP_SUMMARY
+        echo "- **文件**: FlagReporter_ios26.dylib" >> $GITHUB_STEP_SUMMARY
+        echo "- **兼容性**: iOS 13.0 - 26.x" >> $GITHUB_STEP_SUMMARY
+        echo "- **特殊优化**:" >> $GITHUB_STEP_SUMMARY
+        echo "  - 增强 SSL 证书处理" >> $GITHUB_STEP_SUMMARY
+        echo "  - 后台任务支持" >> $GITHUB_STEP_SUMMARY
+        echo "  - Security 框架集成" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 使用说明" >> $GITHUB_STEP_SUMMARY
+        echo "1. **iOS 18 及以下**: 使用 Standard 版本" >> $GITHUB_STEP_SUMMARY
+        echo "2. **iOS 26+**: 使用 iOS 26 兼容版本" >> $GITHUB_STEP_SUMMARY
+        echo "3. 下载对应的 artifact 并重新打包 IPA" >> $GITHUB_STEP_SUMMARY
