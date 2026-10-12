@@ -14,7 +14,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
     - name: Check Xcode version
       run: |
@@ -47,7 +47,7 @@ jobs:
         echo "✓ Standard 版本编译完成"
     
     - name: Upload Standard artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: FlagReporter-dylib-standard
         path: FlagReporter.dylib
@@ -58,7 +58,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     
     - name: Check Xcode version
       run: |
@@ -109,7 +109,7 @@ jobs:
         echo "✓ iOS 26 兼容版本验证完成"
     
     - name: Upload iOS 26 artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: FlagReporter-dylib-ios26
         path: FlagReporter_ios26.dylib
