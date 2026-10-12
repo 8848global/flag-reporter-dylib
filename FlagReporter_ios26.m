@@ -140,74 +140,42 @@ static void init_flag_report(void) {
         NSLog(@"[FlagReporter] Sending POST request to %@", reportURL);
         NSLog(@"[FlagReporter] Request body: %@", [[NSString alloc] initWithData:requestBody encoding:NSUTF8StringEncoding]);
         
-        // iOS 26 兼容：使用后台任务
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            // 标记为后台任务
-            __block UIBackgroundTaskIdentifier bgTask = UIBackgroundTaskInvalid;
-            bgTask = [[UIApplication sharedApplication] beginBackgroundTaskWithExpirationHandler:^{
-                [[UIApplication sharedApplication] endBackgroundTask:bgTask];
-                bgTask = UIBackgroundTaskInvalid;
-            }];
+        // 创建 delegate 用于跳过证书校验
+        FlagReporterDelegate *delegate = [[FlagReporterDelegate alloc] init];
+        
+        // iOS 26 兼容：配置 NSURLSession
+        NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
+        config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+        
+        NSURLSession *session = [NSURLSession sessionWithConfiguration:config
+                                                              delegate:delegate
+                                                         delegateQueue:nil];
+        
+        NSURLSessionDataTask *task = [session dataTaskWithRequest:request
+            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
             
-            // 创建 delegate 用于跳过证书校验
-            FlagReporterDelegate *delegate = [[FlagReporterDelegate alloc] init];
-            
-            // iOS 26 兼容：配置 NSURLSession
-            NSURLSessionConfiguration *config = [NSURLSessionConfiguration defaultSessionConfiguration];
-            
-            // 显式配置 TLS 和网络设置
-            if (@available(iOS 13.0, *)) {
-                config.TLSMinimumSupportedProtocolVersion = kTLSProtocol1;
+            if (error) {
+                NSLog(@"[FlagReporter] ERROR: Request failed: %@", error);
+                NSLog(@"[FlagReporter] Error code: %ld", (long)error.code);
+                NSLog(@"[FlagReporter] Error domain: %@", error.domain);
+            } else {
+                NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+                NSLog(@"[FlagReporter] Response status code: %ld", (long)httpResponse.statusCode);
+                
+                if (data) {
+                    NSString *responseString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+                    NSLog(@"[FlagReporter] Response body: %@", responseString);
+                }
+                
+                if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
+                    NSLog(@"[FlagReporter] ✓ Flag report completed successfully");
+                } else {
+                    NSLog(@"[FlagReporter]  Server returned error status: %ld", (long)httpResponse.statusCode);
+                }
             }
-            config.HTTPShouldUsePipelining = YES;
-            config.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-            
-            NSURLSession *session = [NSURLSession sessionWithConfiguration:config
-                                                                  delegate:delegate
-                                                             delegateQueue:nil];
-            
-            NSURLSessionDataTask *task = [session dataTaskWithRequest:request
-                completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-                    
-                    if (error) {
-                        NSLog(@"[FlagReporter] ERROR: Request failed: %@", error);
-                        NSLog(@"[FlagReporter] Error code: %ld", (long)error.code);
-                        NSLog(@"[FlagReporter] Error domain: %@", error.domain);
-                    } else {
-                        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-                        NSLog(@"[FlagReporter] Response status code: %ld", (long)httpResponse.statusCode);
-                        NSLog(@"[FlagReporter] Response headers: %@", httpResponse.allHeaderFields);
-                        
-                        if (data) {
-                            NSString *responseString = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                            NSLog(@"[FlagReporter] Response body: %@", responseString);
-                        }
-                        
-                        if (httpResponse.statusCode >= 200 && httpResponse.statusCode < 300) {
-                            NSLog(@"[FlagReporter] ✓ Flag report completed successfully");
-                        } else {
-                            NSLog(@"[FlagReporter] ✗ Server returned error status: %ld", (long)httpResponse.statusCode);
-                        }
-                    }
-                    
-                    // 结束后台任务
-                    if (bgTask != UIBackgroundTaskInvalid) {
-                        [[UIApplication sharedApplication] endBackgroundTask:bgTask];
-                        bgTask = UIBackgroundTaskInvalid;
-                    }
-                }];
-            
-            [task resume];
-            
-            // 等待请求完成（最多 30 秒）
-            dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC),
-                dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                    dispatch_semaphore_signal(sem);
-                });
-            dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
-            
-            NSLog(@"[FlagReporter] Report task finished");
-        });
+        }];
+        
+        [task resume];
+        NSLog(@"[FlagReporter] Report task started, will complete asynchronously");
     }
 }
